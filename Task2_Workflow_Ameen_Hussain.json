@@ -1,0 +1,510 @@
+{
+  "name": "Morning Brief - GitHub Automation Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "4f0a8297-ce05-5123-b4cc-dccf0a33066a",
+      "name": "Every Hour (test)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/repositories",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "topic:automation"
+            },
+            {
+              "name": "sort",
+              "value": "stars"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            },
+            {
+              "name": "per_page",
+              "value": "20"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "78d828fd-44c1-5507-97c0-88cbf00e23fe",
+      "name": "GitHub Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "notes": "Optional: add a GitHub token via Credentials (Header Auth) to raise rate limits. Not required."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reshape: keep top 5 repos by stars\nconst repos = $input.first().json.items || [];\nreturn repos\n  .sort((a, b) => b.stargazers_count - a.stargazers_count)\n  .slice(0, 5)\n  .map(r => ({ json: {\n    full_name: r.full_name,\n    url: r.html_url,\n    description: (r.description || 'No description').slice(0, 120),\n    stars: r.stargazers_count,\n    language: r.language || 'n/a'\n  }}));"
+      },
+      "id": "12d90c0a-496f-5a3c-a88f-2d519237bef3",
+      "name": "Top 5 Repos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.full_name }}/releases/latest",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "f4a1ac60-9323-5f69-8ec7-ef472e421792",
+      "name": "Fetch Latest Release",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Enrichment call. 404 (no releases) and network errors continue on the regular output; the next node handles them."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge enrichment (latest release) back onto each repo.\n// HTTP node ran once per item, so index i matches $('Top 5 Repos').all()[i].\nconst repos = $('Top 5 Repos').all();\nreturn $input.all().map((it, i) => {\n  const base = repos[i].json;\n  const failed = !!it.json.error || !it.json.tag_name;\n  return { json: {\n    ...base,\n    latest_release: failed ? 'none / unavailable' : it.json.tag_name,\n    enrichment_failed: !!it.json.error && !/404|Not Found/i.test(JSON.stringify(it.json.error)),\n    released_at: failed ? null : it.json.published_at\n  }};\n});"
+      },
+      "id": "0978a9de-cfaf-57f7-af70-fe423d5f446a",
+      "name": "Merge + Flag Failures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "027eb444-bfc5-5f85-9f34-eb09aaaad16d",
+              "leftValue": "={{ $json.stars }}",
+              "rightValue": 1000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "259c188f-0e80-573a-81b9-9a9a62a962ec",
+      "name": "Stars > 1000?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "564c3b4b-b6f4-56d0-bf58-c219cb74573a",
+              "name": "label",
+              "value": "🔥",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "341f5a24-81eb-566e-ad28-cd01cde8d846",
+      "name": "Label: Hot",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bfb32a44-e459-58e3-8c7b-ba490ecc3c07",
+              "name": "label",
+              "value": "👀",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "6a5c4dd0-0318-5803-8c63-1dc4059d8655",
+      "name": "Label: Watch",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e1b93c5c-7b26-5c0a-95d9-fb29ef66e89d",
+      "name": "Combine Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build one Discord message from all rows (hot first).\nconst rows = $input.all().map(i => i.json).sort((a,b)=>b.stars-a.stars);\nconst lines = rows.map((r,i) =>\n  `${i+1}. ${r.label} **${r.full_name}** ⭐ ${r.stars.toLocaleString()} — release: ${r.latest_release}${r.enrichment_failed ? ' ⚠️ (enrichment failed)' : ''}\\n   ${r.description}\\n   <${r.url}>`);\nconst content = `**Morning Brief — top automation repos** (${new Date().toISOString().slice(0,10)})\\n\\n` + lines.join('\\n\\n');\nreturn [{ json: { content: content.slice(0, 1900) } }];"
+      },
+      "id": "f36c4a52-fcbd-57a1-b1cb-8ba6fb4eb3c1",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "e453d2a3-f200-5a66-958d-9dfb7d0f6f96",
+      "name": "Send Digest to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "REPLACE_ME",
+          "name": "Discord Webhook (morning brief)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb329ce7-de74-5985-b260-059825d6e4fa",
+              "name": "content",
+              "value": "=⚠️ Morning Brief: GitHub search failed after 3 tries. {{ $json.error?.message || 'unknown error' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d0928ce1-87d7-57a6-baef-3faaa828d0a8",
+      "name": "Format Search Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "16ea9f60-f3ec-5366-a47f-c29531c708f5",
+      "name": "Alert: Search Failed",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        660,
+        420
+      ],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "REPLACE_ME",
+          "name": "Discord Webhook (morning brief)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "385d8052-a076-5655-8ed0-0237444f7c74",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "149a625a-ce73-5c9e-a5c6-110884329d6f",
+              "name": "content",
+              "value": "=🚨 Workflow '{{ $json.workflow.name }}' failed at node '{{ $json.execution.lastNodeExecuted }}': {{ $json.execution.error.message }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "82357c5f-2cb6-54f9-a3d5-6aa4dd11d353",
+      "name": "Format Workflow Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "e3d440b4-49b1-5908-8637-412c54e39a60",
+      "name": "Alert: Workflow Error",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        440,
+        620
+      ],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "REPLACE_ME",
+          "name": "Discord Webhook (morning brief)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every Hour (test)": {
+      "main": [
+        [
+          {
+            "node": "GitHub Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Search": {
+      "main": [
+        [
+          {
+            "node": "Top 5 Repos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Search Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 5 Repos": {
+      "main": [
+        [
+          {
+            "node": "Fetch Latest Release",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Latest Release": {
+      "main": [
+        [
+          {
+            "node": "Merge + Flag Failures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge + Flag Failures": {
+      "main": [
+        [
+          {
+            "node": "Stars > 1000?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stars > 1000?": {
+      "main": [
+        [
+          {
+            "node": "Label: Hot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Watch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Hot": {
+      "main": [
+        [
+          {
+            "node": "Combine Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Watch": {
+      "main": [
+        [
+          {
+            "node": "Combine Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Branches": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Digest to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Search Failure": {
+      "main": [
+        [
+          {
+            "node": "Alert: Search Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Workflow Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Alert: Workflow Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

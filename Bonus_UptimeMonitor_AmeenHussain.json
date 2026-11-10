@@ -1,0 +1,310 @@
+{
+  "name": "Uptime Monitor - 5 min",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "f6ed88da-95f8-5876-b0f9-068984b1a413",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "05bc4d1e-16cb-5ebd-89cd-b2700132aaa0",
+              "name": "target_url",
+              "value": "https://demo.realworld.io",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "267ed0fa-573b-5938-a83f-7fc425be868b",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        200
+      ],
+      "notes": "Change target_url to the app tested in Task 1."
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$input.first().json, t0: Date.now() } }];"
+      },
+      "id": "28dbf1e8-6982-5fc8-b30f-56248108a141",
+      "name": "Stamp Start",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.target_url }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "92d1f344-9e88-5e41-af2b-f1857c7fbeba",
+      "name": "Ping App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "neverError: non-2xx returns the status code instead of throwing. Retries cover network errors/timeouts."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate result, track response time, keep counters in static data.\nconst sd = $getWorkflowStaticData('global');\nsd.stats = sd.stats || { checks: 0, failures: 0, totalMs: 0, maxMs: 0, wasDown: false, downSince: null };\nconst s = sd.stats;\nconst started = $('Stamp Start').first().json.t0;\nconst ms = Date.now() - started;\nconst j = $input.first().json;\nconst status = j.error ? 0 : (j.statusCode ?? 0);\nconst down = status !== 200;\ns.checks++; s.totalMs += ms; s.maxMs = Math.max(s.maxMs, ms);\nif (down) s.failures++;\nlet notify = false, message = '';\nconst url = $('Config').first().json.target_url;\nif (down && !s.wasDown) { notify = true; s.downSince = new Date().toISOString();\n  message = `🚨 **DOWN**: ${url} returned ${status || 'no response'} (${ms} ms) after retries.`; }\nelse if (!down && s.wasDown) { notify = true;\n  message = `✅ **RECOVERED**: ${url} is 200 again (${ms} ms). Down since ${s.downSince}.`; s.downSince = null; }\nelse if (down) { notify = false; } // already alerted; avoid spam every 5 min\ns.wasDown = down;\nreturn [{ json: { status, down, ms, notify, message } }];"
+      },
+      "id": "1c54e423-2925-51b4-8db3-67949d2bdc4f",
+      "name": "Evaluate + Track",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "f75162ba-b1f7-590e-ae0d-1a1f497980c4",
+              "leftValue": "={{ $json.notify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "e345d461-700e-56d6-b6b3-df671fb45649",
+      "name": "Alert needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "27c530b5-4483-5e0b-b663-433c073f0bd0",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        120
+      ],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "REPLACE_ME",
+          "name": "Discord Webhook (morning brief)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "9075f878-e666-5ca7-9c4f-202853a6f34c",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst s = sd.stats || { checks: 0, failures: 0, totalMs: 0, maxMs: 0 };\nconst avg = s.checks ? Math.round(s.totalMs / s.checks) : 0;\nconst up = s.checks ? (((s.checks - s.failures) / s.checks) * 100).toFixed(2) : 'n/a';\nconst content = `📊 **Daily uptime summary** — checks: ${s.checks}, failures: ${s.failures}, uptime: ${up}%, avg response: ${avg} ms, max: ${s.maxMs} ms`;\nsd.stats = { checks: 0, failures: 0, totalMs: 0, maxMs: 0, wasDown: s.wasDown, downSince: s.downSince || null };\nreturn [{ json: { content } }];"
+      },
+      "id": "184e0e02-0274-5bc5-8afa-6a638ee8a72b",
+      "name": "Build Daily Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "id": "ce3fd313-2744-5e79-8eb3-b85a1bd7aa0c",
+      "name": "Discord Daily Summary",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        800,
+        480
+      ],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "REPLACE_ME",
+          "name": "Discord Webhook (morning brief)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Stamp Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp Start": {
+      "main": [
+        [
+          {
+            "node": "Ping App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ping App": {
+      "main": [
+        [
+          {
+            "node": "Evaluate + Track",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate + Track": {
+      "main": [
+        [
+          {
+            "node": "Alert needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert needed?": {
+      "main": [
+        [
+          {
+            "node": "Discord Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 09:00": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Summary": {
+      "main": [
+        [
+          {
+            "node": "Discord Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
